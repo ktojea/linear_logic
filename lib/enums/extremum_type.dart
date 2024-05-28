@@ -1,0 +1,4 @@
+enum ExtremumType {
+  min,
+  max;
+}
