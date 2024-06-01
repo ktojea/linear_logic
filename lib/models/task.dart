@@ -29,6 +29,12 @@ class Task {
   /// If the basis is not specified, then first you need to find an artificial basis.
   final List<int>? basis;
 
+  /// The value of the function for a given type of extremum.
+  Fraction? answer;
+
+  /// Details of the final answer in the task.
+  String? answerDetails;
+
   Matrix get getInitialMatrix {
     /// Counting the last row (the sum of the constraints).
     final limitationsSum = List.generate(amountVars + 1, (index) => Fraction(0));
@@ -61,6 +67,8 @@ class Task {
     required this.limitations,
     required this.solutionType,
     this.basis,
+    this.answer,
+    this.answerDetails,
   });
 
   @override

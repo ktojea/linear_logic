@@ -1,9 +1,13 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:fraction/fraction.dart';
 import 'package:linear_logic/enums/extremum_type.dart';
+import 'package:linear_logic/enums/priority.dart';
 import 'package:linear_logic/enums/solution_type.dart';
+import 'package:linear_logic/enums/step_type.dart';
 import 'package:linear_logic/models/matrix.dart';
+import 'package:linear_logic/models/step.dart';
 import 'package:linear_logic/models/task.dart';
 
 abstract class LinearLogic {
@@ -149,13 +153,13 @@ abstract class LinearLogic {
   }
 
   /// To get a function reduced to a smaller number of variables through a given basis.
-  static List<Fraction> getReducedFunctionToSmallerAmountVariables(
+  static List<Fraction> getReducedFunctionToSmallerAmountVariablesFromGauss(
     List<int> indexesNecessaryColumns,
     List<List<Fraction>> gaussValues,
     List<Fraction> function,
     ExtremumType extremumType,
   ) {
-    final newFunction = [
+    List<Fraction> newFunction = [
       ...List.generate(function.length, (i) => indexesNecessaryColumns.contains(i) ? Fraction(0) : function[i]),
       Fraction(0)
     ];
@@ -184,10 +188,176 @@ abstract class LinearLogic {
       }
     }
 
-    // TODO: Add check ExtremumType
-    if (extremumType == ExtremumType.max) {}
+    if (extremumType == ExtremumType.max) {
+      newFunction = newFunction.map((v) => v * Fraction(-1)).toList();
+    }
 
     /// We got a function reduced to fewer variables.
     return newFunction;
+  }
+
+  /// Get a function reduced to fewer variables from an auxiliary task.
+  static List<Fraction> getReducedFunctionToSmallerAmountVariablesFromAuxiliaryMatrix(
+    Matrix auxiliaryMatrix,
+    List<Fraction> function,
+    ExtremumType extremumType,
+  ) {
+    final List<Fraction> reducedFunction = [];
+
+    for (int i = 0; i < auxiliaryMatrix.values.first.length; i++) {
+      var coeffsSum = Fraction(0);
+
+      int? currentBasicVarIndex;
+      if (i != auxiliaryMatrix.values.first.length - 1) {
+        currentBasicVarIndex = int.parse(auxiliaryMatrix.upperVariables[i].substring(1)) - 1;
+      }
+      final currentBasicVarValue = currentBasicVarIndex == null ? Fraction(0) : function[currentBasicVarIndex];
+
+      for (int j = 0; j < auxiliaryMatrix.sideVariables.length; j++) {
+        final currentExpressedVarIndexInFunc = int.parse(auxiliaryMatrix.sideVariables[j].substring(1)) - 1;
+        final currentMultiplier = function[currentExpressedVarIndexInFunc];
+        coeffsSum += auxiliaryMatrix.values[j][i] * currentMultiplier;
+      }
+
+      coeffsSum *= Fraction(-1);
+
+      Fraction newValue = currentBasicVarValue + coeffsSum;
+
+      if (extremumType == ExtremumType.max) newValue *= Fraction(-1);
+
+      reducedFunction.add(newValue);
+    }
+
+    /// Simplify fractions.
+    for (int i = 0; i < reducedFunction.length; i++) {
+      if (reducedFunction[i].numerator % reducedFunction[i].denominator == 0) {
+        reducedFunction[i] = Fraction(reducedFunction[i].numerator ~/ reducedFunction[i].denominator);
+      } else {
+        reducedFunction[i] = reducedFunction[i].reduce();
+      }
+    }
+
+    return reducedFunction;
+  }
+
+  static void solveTask(Task task) {
+    final firstMatrix = task.getInitialMatrix;
+
+    task.solutionSteps.add(
+      Step(
+        matrix: firstMatrix,
+        availableSupportElements: firstMatrix.availableSupportElements,
+        stepType: task.basis == null ? StepType.artificialBasisMethod : StepType.simplexMethod,
+      ),
+    );
+
+    // If the basis is not given, then we run the artificial basis method.
+    if (task.basis == null) {
+      while (true) {
+        if (task.solutionSteps.last.availableSupportElements.isEmpty) {
+          if (task.solutionSteps.last.matrix.values.last.where((e) => e != Fraction(0)).isEmpty) {
+            print('Базис найден!');
+            break;
+          } else {
+            task.answerDetails = 'Нет решений. Система противоречива или не ограничена.';
+            return;
+          }
+        } else {
+          final availableSupportElements = task.solutionSteps.last.matrix.availableSupportElements;
+
+          final supportElement = availableSupportElements.firstWhere((e) => e.priority == Priority.high);
+
+          final newMatrix = task.solutionSteps.last.matrix.calculateNewMatrixForNewSupportElement(supportElement, true);
+
+          task.solutionSteps.add(
+            Step(
+              matrix: newMatrix,
+              availableSupportElements: newMatrix.availableSupportElements,
+              stepType: StepType.artificialBasisMethod,
+            ),
+          );
+        }
+      }
+
+      final List<Fraction> reducedFunction = LinearLogic.getReducedFunctionToSmallerAmountVariablesFromAuxiliaryMatrix(
+        task.solutionSteps.last.matrix,
+        task.function,
+        task.extremumType,
+      );
+
+      final newValues =
+          task.solutionSteps.last.matrix.values.sublist(0, task.solutionSteps.last.matrix.values.length - 1);
+
+      newValues.add(reducedFunction);
+
+      final newMatrix = Matrix(
+        upperVariables: task.solutionSteps.last.matrix.upperVariables,
+        sideVariables: task.solutionSteps.last.matrix.sideVariables,
+        values: newValues,
+      );
+
+      task.solutionSteps.add(Step(
+        matrix: newMatrix,
+        availableSupportElements: newMatrix.availableSupportElements,
+        stepType: StepType.simplexMethod,
+      ));
+    }
+
+    /// Let's move on to solving the problem using the simplex method.
+    if (task.basis != null) {
+      final indexesNecessaryColumns = task.basis!;
+      final matrixWithNecessaryColumnsInFront = firstMatrix.putNecessaryColumnsInFront(indexesNecessaryColumns);
+      final gaussValues = matrixWithNecessaryColumnsInFront.useGaussMethod!;
+      final reducedFunction = LinearLogic.getReducedFunctionToSmallerAmountVariablesFromGauss(
+        indexesNecessaryColumns,
+        gaussValues,
+        task.function,
+        task.extremumType,
+      );
+
+      print(reducedFunction.map((e) => e.reduce()).toList());
+
+      final newMatrix = LinearLogic.createMatrixForSimplexMethodWithBasis(
+        indexesNecessaryColumns,
+        gaussValues,
+        reducedFunction,
+      );
+
+      task.solutionSteps.add(Step(
+        matrix: newMatrix,
+        availableSupportElements: newMatrix.availableSupportElements,
+        stepType: StepType.simplexMethod,
+      ));
+    }
+
+    while (true) {
+      if (task.solutionSteps.last.availableSupportElements.isEmpty) {
+        final lastRow = task.solutionSteps.last.matrix.values.last;
+        final lastRowWithoutAnswer = lastRow.sublist(0, lastRow.length - 1);
+
+        if (lastRowWithoutAnswer.where((v) => v < Fraction(0)).isEmpty) {
+          task.answer = task.solutionSteps.last.matrix.values.last.last * Fraction(-1);
+          task.answerDetails = 'Задача решена!';
+          break;
+        } else {
+          task.answerDetails = 'Нет решений. Система не ограничена.';
+          return;
+        }
+      } else {
+        final availableSupportElements = task.solutionSteps.last.matrix.availableSupportElements;
+
+        final supportElement = availableSupportElements.firstWhere((e) => e.priority == Priority.high);
+
+        final newMatrix = task.solutionSteps.last.matrix.calculateNewMatrixForNewSupportElement(supportElement);
+
+        task.solutionSteps.add(
+          Step(
+            matrix: newMatrix,
+            availableSupportElements: newMatrix.availableSupportElements,
+            stepType: StepType.simplexMethod,
+          ),
+        );
+      }
+    }
   }
 }

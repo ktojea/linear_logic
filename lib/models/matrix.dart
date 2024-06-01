@@ -78,7 +78,12 @@ class Matrix {
   }
 
   /// Generates a new matrix for a new support element.
-  Matrix calculateNewMatrixForNewSupportElement(SupportElement supportElement) {
+  ///
+  /// [isForSearchArtificialBasis] responsible for deleting a column in a new iteration.
+  /// Specify "true" if you need to delete the support column,
+  /// and do not specify if deleting the support column is not required.
+  Matrix calculateNewMatrixForNewSupportElement(SupportElement supportElement,
+      [bool isForSearchArtificialBasis = false]) {
     List<List<Fraction>> newValues = [];
 
     // We are looking for new values for the support element,
@@ -131,6 +136,15 @@ class Matrix {
 
     newValues = _simplifyFractions(newValues);
 
+    /// We check whether the support column needs to be deleted.
+    if (isForSearchArtificialBasis) {
+      for (int i = 0; i < newValues.length; i++) {
+        newValues[i].removeAt(supportElement.position.$2);
+      }
+
+      newUpperVariables.removeAt(supportElement.position.$2);
+    }
+
     return Matrix(
       upperVariables: newUpperVariables,
       sideVariables: newSideVariables,
@@ -175,12 +189,6 @@ class Matrix {
       values: newValues,
     );
   }
-
-  // List<List<Fraction>> putColumnsToInitialPosition(List<int> indexesNecessaryColumns) {
-  //   final newValues = values.map((e) => e.toList()).toList();
-
-  //   return [];
-  // }
 
   /// Simplify fractions.
   List<List<Fraction>> _simplifyFractions(List<List<Fraction>> listForSimplify) {
