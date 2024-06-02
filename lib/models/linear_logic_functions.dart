@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math';
 
 import 'package:fraction/fraction.dart';
 import 'package:linear_logic/enums/extremum_type.dart';
@@ -8,6 +7,7 @@ import 'package:linear_logic/enums/solution_type.dart';
 import 'package:linear_logic/enums/step_type.dart';
 import 'package:linear_logic/models/matrix.dart';
 import 'package:linear_logic/models/step.dart';
+import 'package:linear_logic/models/support_element.dart';
 import 'package:linear_logic/models/task.dart';
 
 abstract class LinearLogic {
@@ -240,6 +240,8 @@ abstract class LinearLogic {
     return reducedFunction;
   }
 
+  /// Automatically solves the problem.
+  /// All steps are added to the solution steps this problem.
   static void solveTask(Task task) {
     final firstMatrix = task.getInitialMatrix;
 
@@ -356,6 +358,118 @@ abstract class LinearLogic {
             availableSupportElements: newMatrix.availableSupportElements,
             stepType: StepType.simplexMethod,
           ),
+        );
+      }
+    }
+  }
+
+  /// This method is needed to solve the problem step by step.
+  /// The method returns 'null' when the task has no new solution steps.
+  ///
+  /// Specify the value of the reference element 'null',
+  /// when switching from the artificial basis search to the simplex method.
+  static Step? nextStep(Task task, SupportElement? supportElement) {
+    /// If there are details of the answer, then the solution of the problem is completed.
+    if (task.answerDetails != null) return null;
+
+    if (task.solutionSteps.isEmpty) {
+      final firstMatrix = task.getInitialMatrix;
+
+      return Step(
+        matrix: firstMatrix,
+        availableSupportElements: firstMatrix.availableSupportElements,
+        stepType: task.basis == null ? StepType.artificialBasisMethod : StepType.simplexMethod,
+      );
+    }
+
+    final lastStep = task.solutionSteps.last;
+
+    final currentStepType = lastStep.stepType;
+
+    final lastRow = lastStep.matrix.values.last;
+
+    /// The last step was the search for an artificial basis.
+    if (currentStepType == StepType.artificialBasisMethod) {
+      /// A situation where there are no available support elements
+      /// at the stage of searching for an artificial basis.
+      if (lastStep.availableSupportElements.isEmpty) {
+        /// The situation when the basis is found.
+        if (lastRow.where((e) => e != Fraction(0)).isEmpty) {
+          task.artificialBasis = [Fraction(2), Fraction(2), Fraction(8)];
+
+          final List<Fraction> reducedFunction =
+              LinearLogic.getReducedFunctionToSmallerAmountVariablesFromAuxiliaryMatrix(
+            task.solutionSteps.last.matrix,
+            task.function,
+            task.extremumType,
+          );
+
+          final newValues =
+              task.solutionSteps.last.matrix.values.sublist(0, task.solutionSteps.last.matrix.values.length - 1);
+
+          newValues.add(reducedFunction);
+
+          final newMatrix = Matrix(
+            upperVariables: task.solutionSteps.last.matrix.upperVariables,
+            sideVariables: task.solutionSteps.last.matrix.sideVariables,
+            values: newValues,
+          );
+
+          return Step(
+            matrix: newMatrix,
+            availableSupportElements: newMatrix.availableSupportElements,
+            stepType: StepType.simplexMethod,
+          );
+        }
+
+        /// The situation where the basis could not be found.
+        else {
+          task.answerDetails = 'Нет решений. Система противоречива или не ограничена.';
+          return null;
+        }
+      } else {
+        final availableSupportElements = task.solutionSteps.last.matrix.availableSupportElements;
+
+        final supportElement = availableSupportElements.firstWhere((e) => e.priority == Priority.high);
+
+        final newMatrix = task.solutionSteps.last.matrix.calculateNewMatrixForNewSupportElement(supportElement, true);
+
+        return Step(
+          matrix: newMatrix,
+          availableSupportElements: newMatrix.availableSupportElements,
+          stepType: StepType.artificialBasisMethod,
+        );
+      }
+    }
+
+    /// The last step was the simplex method.
+    else {
+      final lastRowWithoutAnswer = lastRow.sublist(0, lastRow.length - 1);
+
+      /// A situation where there are no support elements available.
+      if (lastStep.availableSupportElements.isEmpty) {
+        if (lastRowWithoutAnswer.where((v) => v < Fraction(0)).isEmpty) {
+          task.answer = task.solutionSteps.last.matrix.values.last.last * Fraction(-1);
+          task.answerDetails = 'Задача решена!';
+          return null;
+        } else {
+          task.answerDetails = 'Нет решений. Система не ограничена.';
+          return null;
+        }
+      }
+
+      /// A situation where a simplex table has available support elements.
+      else {
+        final availableSupportElements = task.solutionSteps.last.matrix.availableSupportElements;
+
+        final supportElement = availableSupportElements.firstWhere((e) => e.priority == Priority.high);
+
+        final newMatrix = task.solutionSteps.last.matrix.calculateNewMatrixForNewSupportElement(supportElement);
+
+        return Step(
+          matrix: newMatrix,
+          availableSupportElements: newMatrix.availableSupportElements,
+          stepType: StepType.simplexMethod,
         );
       }
     }

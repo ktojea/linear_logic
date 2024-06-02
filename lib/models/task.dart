@@ -35,6 +35,9 @@ class Task {
   /// Details of the final answer in the task.
   String? answerDetails;
 
+  /// Artificial basis.
+  List<Fraction>? artificialBasis;
+
   Matrix get getInitialMatrix {
     /// Counting the last row (the sum of the constraints).
     final limitationsSum = List.generate(amountVars + 1, (index) => Fraction(0));
@@ -69,6 +72,7 @@ class Task {
     this.basis,
     this.answer,
     this.answerDetails,
+    this.artificialBasis,
   });
 
   @override
